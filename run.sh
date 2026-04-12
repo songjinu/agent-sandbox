@@ -23,6 +23,7 @@ set -e
 CONTAINER_NAME=agent-sandbox
 IMAGE_NAME=agent-sandbox
 HOST_PORT=${HOST_PORT:-7861}
+API_PORT=${API_PORT:-8000}
 
 # 기존 컨테이너 정리
 docker rm -f $CONTAINER_NAME 2>/dev/null || true
@@ -30,6 +31,7 @@ docker rm -f $CONTAINER_NAME 2>/dev/null || true
 docker run -d \
   --name $CONTAINER_NAME \
   -p $HOST_PORT:7860 \
+  -p $API_PORT:8000 \
   -e LLM_PROVIDER=${LLM_PROVIDER:-ollama} \
   -e LLM_BASE_URL=${LLM_BASE_URL:-http://172.19.16.1:11434} \
   -e LLM_MODEL=${LLM_MODEL:-glm-5:cloud} \

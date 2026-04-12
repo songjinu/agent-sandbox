@@ -7,11 +7,12 @@ sys.path.insert(0, "/mnt/c/Users/qsky0/Documents/Claude/Projects/songwork")
 
 import gradio as gr
 from session_manager import SessionManager, SESSION_TIMEOUT, MAX_SESSIONS
+from llm_config import list_llm_ids, load_config, save_config
 
 manager = SessionManager()
 
 
-def chat(session_id: str, message: str, history: list) -> tuple:
+def chat(session_id: str, llm_id: str, message: str, history: list) -> tuple:
     if not session_id.strip():
         history = history + [("", "세션 ID를 입력하세요.")]
         return history, ""
@@ -19,7 +20,7 @@ def chat(session_id: str, message: str, history: list) -> tuple:
         return history, ""
 
     try:
-        session = manager.get_or_create(session_id.strip())
+        session = manager.get_or_create(session_id.strip(), llm_id or None)
         result = session.graph.invoke(
             {"messages": [{"role": "user", "content": message}]},
             config={"configurable": {"thread_id": session_id}},
@@ -68,13 +69,52 @@ def apply_settings(max_sessions: int, timeout: int) -> str:
     return f"설정 적용됨: 최대 세션={max_sessions}, 타임아웃={timeout}초"
 
 
+def get_llm_list() -> str:
+    cfg = load_config()
+    lines = [f"default: {cfg['default']}", ""]
+    for llm_id, entry in cfg["llms"].items():
+        lines.append(f"[{llm_id}] {entry['model']} @ {entry['base_url']}")
+    return "\n".join(lines)
+
+
+def save_llm_entry(llm_id: str, base_url: str, model: str, api_key: str, set_default: bool) -> str:
+    if not llm_id.strip():
+        return "LLM ID를 입력하세요."
+    cfg = load_config()
+    cfg["llms"][llm_id.strip()] = {
+        "base_url": base_url,
+        "model": model,
+        "api_key": api_key,
+    }
+    if set_default:
+        cfg["default"] = llm_id.strip()
+    save_config(cfg)
+    return f"저장됨: [{llm_id}] {provider} / {model}"
+
+
+def delete_llm_entry(llm_id: str) -> str:
+    if not llm_id.strip():
+        return "LLM ID를 입력하세요."
+    cfg = load_config()
+    if llm_id.strip() not in cfg["llms"]:
+        return f"'{llm_id}' 없음"
+    del cfg["llms"][llm_id.strip()]
+    save_config(cfg)
+    return f"삭제됨: {llm_id}"
+
+
 with gr.Blocks(title="Agent Sandbox UI") as app:
     gr.Markdown("# Agent Sandbox 테스트")
 
     with gr.Tabs():
         # 채팅 탭
         with gr.Tab("채팅"):
-            session_input = gr.Textbox(label="세션 ID", placeholder="예: user-001", scale=1)
+            with gr.Row():
+                session_input = gr.Textbox(label="세션 ID", placeholder="예: user-001", scale=2)
+                llm_id_input = gr.Dropdown(
+                    choices=list_llm_ids(), label="LLM", scale=1,
+                    value=load_config().get("default"),
+                )
             chatbot = gr.Chatbot(height=400)
             with gr.Row():
                 msg_input = gr.Textbox(label="메시지", placeholder="Agent에게 요청하세요", scale=4)
@@ -82,8 +122,8 @@ with gr.Blocks(title="Agent Sandbox UI") as app:
             close_btn = gr.Button("세션 종료", variant="stop")
             close_output = gr.Textbox(label="", interactive=False)
 
-            send_btn.click(chat, [session_input, msg_input, chatbot], [chatbot, msg_input])
-            msg_input.submit(chat, [session_input, msg_input, chatbot], [chatbot, msg_input])
+            send_btn.click(chat, [session_input, llm_id_input, msg_input, chatbot], [chatbot, msg_input])
+            msg_input.submit(chat, [session_input, llm_id_input, msg_input, chatbot], [chatbot, msg_input])
             close_btn.click(close_session, session_input, close_output)
 
         # 모니터링 탭
@@ -95,12 +135,32 @@ with gr.Blocks(title="Agent Sandbox UI") as app:
 
         # 설정 탭
         with gr.Tab("설정"):
+            gr.Markdown("### 세션 설정")
             max_sessions_slider = gr.Slider(1, 100, value=MAX_SESSIONS, step=1, label="최대 세션 수")
             timeout_slider = gr.Slider(60, 3600, value=SESSION_TIMEOUT, step=60, label="세션 타임아웃 (초)")
             apply_btn = gr.Button("적용", variant="primary")
             settings_output = gr.Textbox(label="", interactive=False)
             apply_btn.click(apply_settings, [max_sessions_slider, timeout_slider], settings_output)
             app.load(lambda: get_settings(), outputs=[max_sessions_slider, timeout_slider])
+
+            gr.Markdown("### LLM 설정")
+            llm_list_output = gr.Textbox(label="등록된 LLM 목록", lines=6, interactive=False)
+            llm_id_field = gr.Textbox(label="LLM ID", placeholder="예: ollama-local")
+            llm_base_url_field = gr.Textbox(label="Base URL", placeholder="http://172.19.16.1:11434/v1")
+            llm_model_field = gr.Textbox(label="Model", placeholder="glm-5:cloud")
+            llm_api_key_field = gr.Textbox(label="API Key", placeholder="dummy", type="password")
+            llm_default_check = gr.Checkbox(label="기본값으로 설정")
+            with gr.Row():
+                llm_save_btn = gr.Button("저장", variant="primary")
+                llm_delete_btn = gr.Button("삭제", variant="stop")
+            llm_output = gr.Textbox(label="", interactive=False)
+            llm_save_btn.click(
+                save_llm_entry,
+                [llm_id_field, llm_base_url_field, llm_model_field, llm_api_key_field, llm_default_check],
+                llm_output,
+            ).then(get_llm_list, outputs=llm_list_output)
+            llm_delete_btn.click(delete_llm_entry, llm_id_field, llm_output).then(get_llm_list, outputs=llm_list_output)
+            app.load(get_llm_list, outputs=llm_list_output)
 
 
 if __name__ == "__main__":

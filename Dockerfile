@@ -29,5 +29,8 @@ ENV LLM_MODEL=glm-5:cloud
 ENV LLM_API_KEY=dummy
 
 EXPOSE 7860
+EXPOSE 8000
 
-CMD ["python", "ui.py"]
+# UI: python ui.py
+# API: python api.py
+CMD ["python", "api.py"]

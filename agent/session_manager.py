@@ -13,11 +13,8 @@ import time
 import threading
 from dataclasses import dataclass, field
 
-# LLM 설정 (환경변수로 전환 가능)
-LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "ollama")   # ollama | vllm
-LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "http://172.19.16.1:11434")
-LLM_MODEL = os.environ.get("LLM_MODEL", "glm-5:cloud")
-LLM_API_KEY = os.environ.get("LLM_API_KEY", "dummy")      # vLLM은 아무 값이나 가능
+from llm_config import build_llm
+
 SESSION_TIMEOUT = 300   # 5분 비활동 시 세션 소멸
 MAX_SESSIONS = 50       # 최대 동시 세션 수
 
@@ -58,6 +55,7 @@ class Session:
     session_id: str
     graph: object
     sandbox: object
+    llm_id: str | None = None
     created_at: float = field(default_factory=time.time)
     last_active: float = field(default_factory=time.time)
     request_count: int = 0
@@ -65,6 +63,12 @@ class Session:
     def touch(self):
         self.last_active = time.time()
         self.request_count += 1
+
+    def switch_llm(self, llm_id: str | None):
+        """LLM 교체 — sandbox/파일은 유지, graph만 재생성"""
+        from deepagents.graph import create_deep_agent
+        self.graph = create_deep_agent(model=build_llm(llm_id), backend=self.sandbox)
+        self.llm_id = llm_id
 
     def is_expired(self) -> bool:
         return time.time() - self.last_active > SESSION_TIMEOUT
@@ -88,11 +92,13 @@ class SessionManager:
         self._cleanup_thread = threading.Thread(target=self._cleanup_loop, daemon=True)
         self._cleanup_thread.start()
 
-    def get_or_create(self, session_id: str) -> Session:
+    def get_or_create(self, session_id: str, llm_id: str | None = None) -> Session:
         with self._lock:
             # 기존 세션 재사용
             if session_id in self._sessions:
                 session = self._sessions[session_id]
+                if llm_id is not None and llm_id != session.llm_id:
+                    session.switch_llm(llm_id)
                 session.touch()
                 return session
 
@@ -107,21 +113,10 @@ class SessionManager:
             from process_sandbox import ProcessSandboxBackend
 
             sandbox = ProcessSandboxBackend(session_id)
-
-            if LLM_PROVIDER == "vllm":
-                from langchain_openai import ChatOpenAI
-                llm = ChatOpenAI(
-                    model=LLM_MODEL,
-                    base_url=LLM_BASE_URL,
-                    api_key=LLM_API_KEY,
-                )
-            else:
-                from langchain_ollama import ChatOllama
-                llm = ChatOllama(model=LLM_MODEL, base_url=LLM_BASE_URL)
-
+            llm = build_llm(llm_id)
             graph = create_deep_agent(model=llm, backend=sandbox)
 
-            session = Session(session_id=session_id, graph=graph, sandbox=sandbox)
+            session = Session(session_id=session_id, graph=graph, sandbox=sandbox, llm_id=llm_id)
             session.touch()
             self._sessions[session_id] = session
             return session
