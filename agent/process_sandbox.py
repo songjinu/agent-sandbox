@@ -19,14 +19,17 @@ from deepagents.backends.protocol import (
 from deepagents.backends.sandbox import BaseSandbox
 
 WORKSPACE = "/tmp/sandbox_workspace"
-MEM_LIMIT = 256 * 1024 * 1024  # 256MB
-CPU_TIME_LIMIT = 30  # 30초
+MEM_LIMIT = 256 * 1024 * 1024   # 256MB
+CPU_TIME_LIMIT = 30              # 30초
+DISK_LIMIT = 100 * 1024 * 1024  # 100MB (디렉토리 총 용량)
+FILE_SIZE_LIMIT = 50 * 1024 * 1024  # 50MB (단일 파일)
 
 
 def _set_limits():
     import resource
     resource.setrlimit(resource.RLIMIT_CPU, (CPU_TIME_LIMIT, CPU_TIME_LIMIT))
     resource.setrlimit(resource.RLIMIT_AS, (MEM_LIMIT, MEM_LIMIT))
+    resource.setrlimit(resource.RLIMIT_FSIZE, (FILE_SIZE_LIMIT, FILE_SIZE_LIMIT))
 
 
 class ProcessSandboxBackend(BaseSandbox):
@@ -45,7 +48,26 @@ class ProcessSandboxBackend(BaseSandbox):
     def workdir(self) -> str:
         return self._workdir
 
+    def _workdir_size(self) -> int:
+        """디렉토리 총 사용량 (bytes)"""
+        total = 0
+        for dp, _, files in os.walk(self._workdir):
+            for f in files:
+                try:
+                    total += os.path.getsize(os.path.join(dp, f))
+                except OSError:
+                    pass
+        return total
+
+    def _check_disk_quota(self):
+        used = self._workdir_size()
+        if used >= DISK_LIMIT:
+            raise RuntimeError(
+                f"디스크 용량 초과: {used // (1024*1024)}MB / {DISK_LIMIT // (1024*1024)}MB"
+            )
+
     def execute(self, command: str, *, timeout: int | None = None) -> ExecuteResponse:
+        self._check_disk_quota()
         effective_timeout = timeout or CPU_TIME_LIMIT
         try:
             result = subprocess.run(
@@ -75,6 +97,7 @@ class ProcessSandboxBackend(BaseSandbox):
             return ExecuteResponse(output=f"Error: {e}", exit_code=1, truncated=False)
 
     def upload_files(self, files: list[tuple[str, bytes]]) -> list[FileUploadResponse]:
+        self._check_disk_quota()
         responses = []
         for path, content in files:
             full_path = os.path.join(self._workdir, path.lstrip("/"))
