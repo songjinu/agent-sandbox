@@ -21,8 +21,8 @@ from deepagents.backends.sandbox import BaseSandbox
 WORKSPACE = "/tmp/sandbox_workspace"
 MEM_LIMIT = 256 * 1024 * 1024   # 256MB
 CPU_TIME_LIMIT = 30              # 30초
-DISK_LIMIT = 100 * 1024 * 1024  # 100MB (디렉토리 총 용량)
-FILE_SIZE_LIMIT = 50 * 1024 * 1024  # 50MB (단일 파일)
+DISK_LIMIT = int(os.environ.get("SANDBOX_DISK_LIMIT_MB", 10)) * 1024 * 1024
+FILE_SIZE_LIMIT = int(os.environ.get("SANDBOX_FILE_SIZE_LIMIT_MB", 10)) * 1024 * 1024
 
 
 def _set_limits():

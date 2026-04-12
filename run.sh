@@ -36,6 +36,8 @@ docker run -d \
   -e LLM_BASE_URL=${LLM_BASE_URL:-http://172.19.16.1:11434} \
   -e LLM_MODEL=${LLM_MODEL:-glm-5:cloud} \
   -e LLM_API_KEY=${LLM_API_KEY:-dummy} \
+  -e SANDBOX_DISK_LIMIT_MB=${SANDBOX_DISK_LIMIT_MB:-10} \
+  -e SANDBOX_FILE_SIZE_LIMIT_MB=${SANDBOX_FILE_SIZE_LIMIT_MB:-10} \
   $IMAGE_NAME
 
 echo "Started: http://localhost:$HOST_PORT"
