@@ -8,39 +8,48 @@ LangGraph 기반 Agent 서비스를 위한 프로세스 샌드박스 구현 및 
 agent-sandbox/
 ├── Dockerfile
 ├── requirements.txt
-├── build.sh            # 이미지 빌드
-├── run.sh              # 컨테이너 실행
-├── agent/              # 앱 소스
-│   ├── process_sandbox.py   # 프로세스 기반 샌드박스 백엔드
-│   ├── session_manager.py   # 세션 관리 (생성/재사용/타임아웃)
-│   └── ui.py                # Gradio UI
-├── tests/              # 테스트
-│   ├── sandbox_direct_test.py       # 샌드박스 기능 직접 테스트 (LLM 없이)
-│   ├── sandbox_test.py              # 프로세스 샌드박스 기본 테스트
-│   ├── session_test.py              # 세션 관리 테스트
+├── build.sh                    # 이미지 빌드
+├── run.sh                      # 컨테이너 실행
+├── agent/                      # 앱 소스
+│   ├── process_sandbox.py      # 프로세스 기반 샌드박스 (자체 구현)
+│   ├── session_manager.py      # 세션 관리 (생성/재사용/타임아웃)
+│   ├── llm_config.py           # LLM 설정 관리 (다중 ID)
+│   ├── api.py                  # FastAPI HTTP API 서버
+│   └── ui.py                   # Gradio UI
+├── tests/                      # 테스트
+│   ├── sandbox_direct_test.py          # 샌드박스 기능 직접 테스트 (LLM 없이)
+│   ├── sandbox_test.py                 # 프로세스 샌드박스 기본 테스트
+│   ├── session_test.py                 # 세션 관리 테스트
+│   ├── llm_config_test.py              # LLM 설정 테스트
+│   ├── locustfile.py                   # locust 성능 테스트 시나리오
 │   └── deepagents_process_sandbox_test.py  # deepagents + LLM 통합 테스트
-└── docs/               # 문서
+└── docs/                       # 문서
+    └── performance_test.md     # 성능 테스트 가이드
 ```
 
 ## 아키텍처
 
-### 샌드박스 설계
+### 샌드박스
 
-- **격리 방식**: 요청별 프로세스 + 디렉토리 분리 (`/tmp/sandbox_workspace/{session_id}/`)
-- **리소스 제한**: CPU 시간 30초, 메모리 256MB (Linux `resource` 모듈)
-- **세션 관리**: 동일 세션 ID면 Agent/Sandbox 재사용, 비활동 5분 후 자동 소멸
-- **동시 처리**: 단일 Pod 내 다수 세션 처리, K8s HPA로 Pod 스케일 아웃
+deepagents의 Sandbox 인터페이스를 자체 구현한 **프로세스 기반 샌드박스**입니다.
+외부 샌드박스 서비스(Daytona, E2B 등) 없이 Agent Pod 내에서 직접 동작합니다.
+
+- **격리**: 세션별 독립 디렉토리 (`/tmp/sandbox_workspace/{session_id}/`)
+- **리소스 제한**: CPU 시간 30초, 메모리 256MB
+- **기능**: 명령 실행, 파일 생성/읽기, 타임아웃 처리
+- **세션 재사용**: 동일 세션 ID면 Agent/Sandbox 유지, 비활동 5분 후 자동 소멸
+- **스케일 아웃**: 단일 Pod 내 다수 세션 처리, K8s HPA로 Pod 증설
 
 ### LLM 연동
 
-환경변수로 LLM 프로바이더 전환 가능:
+`llm_config.json` 으로 다중 LLM을 ID별로 관리합니다.
+Ollama, vLLM, OpenRouter 등 OpenAI 호환 API를 동일하게 지원합니다.
 
 | 변수 | 설명 | 기본값 |
 |------|------|--------|
-| `LLM_PROVIDER` | `ollama` 또는 `vllm` | `ollama` |
-| `LLM_BASE_URL` | LLM 서버 주소 | `http://172.19.16.1:11434` |
+| `LLM_BASE_URL` | LLM 서버 주소 | `http://172.19.16.1:11434/v1` |
 | `LLM_MODEL` | 모델명 | `glm-5:cloud` |
-| `LLM_API_KEY` | API 키 | `dummy` |
+| `LLM_API_KEY` | API 키 | `ollama` |
 
 ## 빠른 시작
 
@@ -68,9 +77,9 @@ LLM_API_KEY=your-key \
 
 ### UI 구성
 
-- **채팅**: 세션 ID 입력 후 Agent에게 요청
+- **채팅**: 세션 ID + LLM 선택 후 Agent에게 요청
 - **모니터링**: 활성 세션 목록, 요청수, 유휴시간, 디스크 사용량
-- **설정**: 최대 세션 수, 타임아웃 조정
+- **설정**: 세션 타임아웃/최대 수 조정, LLM 설정 CRUD
 
 ## 테스트
 
