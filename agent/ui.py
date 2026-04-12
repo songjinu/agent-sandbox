@@ -144,7 +144,7 @@ with gr.Blocks(title="Agent Sandbox UI") as app:
             app.load(lambda: get_settings(), outputs=[max_sessions_slider, timeout_slider])
 
             gr.Markdown("### LLM 설정")
-            llm_list_output = gr.Textbox(label="등록된 LLM 목록", lines=6, interactive=False)
+            llm_select = gr.Dropdown(choices=list_llm_ids(), label="등록된 LLM (선택하면 폼 자동 입력)")
             llm_id_field = gr.Textbox(label="LLM ID", placeholder="예: ollama-local")
             llm_base_url_field = gr.Textbox(label="Base URL", placeholder="http://172.19.16.1:11434/v1")
             llm_model_field = gr.Textbox(label="Model", placeholder="glm-5:cloud")
@@ -154,13 +154,32 @@ with gr.Blocks(title="Agent Sandbox UI") as app:
                 llm_save_btn = gr.Button("저장", variant="primary")
                 llm_delete_btn = gr.Button("삭제", variant="stop")
             llm_output = gr.Textbox(label="", interactive=False)
+
+            def load_llm_entry(llm_id):
+                if not llm_id:
+                    return "", "", "", False
+                cfg = load_config()
+                entry = cfg["llms"].get(llm_id, {})
+                is_default = cfg["default"] == llm_id
+                return llm_id, entry.get("base_url", ""), entry.get("model", ""), is_default
+
+            def refresh_llm_select():
+                ids = list_llm_ids()
+                return gr.Dropdown(choices=ids)
+
+            llm_select.change(
+                load_llm_entry, llm_select,
+                [llm_id_field, llm_base_url_field, llm_model_field, llm_default_check],
+            )
             llm_save_btn.click(
                 save_llm_entry,
                 [llm_id_field, llm_base_url_field, llm_model_field, llm_api_key_field, llm_default_check],
                 llm_output,
-            ).then(get_llm_list, outputs=llm_list_output)
-            llm_delete_btn.click(delete_llm_entry, llm_id_field, llm_output).then(get_llm_list, outputs=llm_list_output)
-            app.load(get_llm_list, outputs=llm_list_output)
+            ).then(refresh_llm_select, outputs=llm_select)
+            llm_delete_btn.click(
+                delete_llm_entry, llm_id_field, llm_output,
+            ).then(refresh_llm_select, outputs=llm_select)
+            app.load(refresh_llm_select, outputs=llm_select)
 
 
 if __name__ == "__main__":
