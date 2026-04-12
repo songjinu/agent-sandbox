@@ -82,6 +82,12 @@ LLM_API_KEY=your-key \
 ~/.local/share/uv/tools/deepagents-cli/bin/python3 tests/session_test.py
 ```
 
+## 성능 테스트 (실험적)
+
+FastAPI 기반 HTTP API 서버와 locust/JMeter를 이용한 부하 테스트를 지원합니다.
+
+> [성능 테스트 가이드](docs/performance_test.md)
+
 ## 요구사항
 
 - Docker
