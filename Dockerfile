@@ -11,9 +11,15 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # 앱 소스 복사
 COPY agent/ .
+COPY skills/ /app/skills/
 
 # sandbox 작업 디렉토리
 RUN mkdir -p /tmp/sandbox_workspace
+
+# non-root 유저 (RLIMIT_NPROC 적용을 위해)
+RUN useradd -m -u 1000 sandbox
+RUN chown -R sandbox:sandbox /tmp/sandbox_workspace
+USER sandbox
 
 # LLM 설정 기본값 (docker run -e 로 오버라이드)
 # vllm (Gemini)
@@ -31,6 +37,7 @@ ENV LLM_API_KEY=dummy
 # 샌드박스 리소스 제한
 ENV SANDBOX_DISK_LIMIT_MB=10
 ENV SANDBOX_FILE_SIZE_LIMIT_MB=10
+ENV SANDBOX_NPROC_LIMIT=256
 
 EXPOSE 7860
 EXPOSE 8000

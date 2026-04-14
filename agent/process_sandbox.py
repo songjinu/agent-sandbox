@@ -23,6 +23,7 @@ MEM_LIMIT = 256 * 1024 * 1024   # 256MB
 CPU_TIME_LIMIT = 30              # 30초
 DISK_LIMIT = int(os.environ.get("SANDBOX_DISK_LIMIT_MB", 10)) * 1024 * 1024
 FILE_SIZE_LIMIT = int(os.environ.get("SANDBOX_FILE_SIZE_LIMIT_MB", 10)) * 1024 * 1024
+NPROC_LIMIT = int(os.environ.get("SANDBOX_NPROC_LIMIT", 64))
 
 
 def _set_limits():
@@ -30,6 +31,7 @@ def _set_limits():
     resource.setrlimit(resource.RLIMIT_CPU, (CPU_TIME_LIMIT, CPU_TIME_LIMIT))
     resource.setrlimit(resource.RLIMIT_AS, (MEM_LIMIT, MEM_LIMIT))
     resource.setrlimit(resource.RLIMIT_FSIZE, (FILE_SIZE_LIMIT, FILE_SIZE_LIMIT))
+    resource.setrlimit(resource.RLIMIT_NPROC, (NPROC_LIMIT, NPROC_LIMIT))
 
 
 class ProcessSandboxBackend(BaseSandbox):

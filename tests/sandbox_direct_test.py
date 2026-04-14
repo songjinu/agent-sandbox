@@ -136,6 +136,54 @@ def test_disk_quota():
     importlib.reload(process_sandbox)
 
 
+def test_memory_limit():
+    print("\n[8] 메모리 제한")
+    from process_sandbox import ProcessSandboxBackend
+    sb = ProcessSandboxBackend("t-mem")
+    try:
+        # 300MB 할당 시도 (256MB 초과)
+        r = sb.execute("python3 -c \"x = bytearray(300 * 1024 * 1024)\"")
+        assert r.exit_code != 0
+        ok("메모리 초과 차단 (300MB > 256MB 한도)", f"exit={r.exit_code}")
+    finally:
+        sb.cleanup()
+
+
+def test_cpu_limit():
+    print("\n[9] CPU 시간 제한")
+    from process_sandbox import ProcessSandboxBackend
+    sb = ProcessSandboxBackend("t-cpu")
+    try:
+        # 무한 CPU 루프
+        r = sb.execute("python3 -c \"while True: pass\"", timeout=35)
+        assert r.exit_code != 0
+        ok("CPU 시간 초과 차단 (무한 루프)", f"exit={r.exit_code}")
+    finally:
+        sb.cleanup()
+
+
+
+def test_nproc_limit():
+    print("\n[10] 프로세스 수 제한 (RLIMIT_NPROC 적용 확인)")
+    import os, importlib, process_sandbox
+    original = os.environ.get("SANDBOX_NPROC_LIMIT")
+    os.environ["SANDBOX_NPROC_LIMIT"] = "64"
+    importlib.reload(process_sandbox)
+    from process_sandbox import ProcessSandboxBackend
+    sb = ProcessSandboxBackend("t-nproc")
+    try:
+        r = sb.execute("python3 -c \"import resource; soft,hard=resource.getrlimit(resource.RLIMIT_NPROC); print(soft,hard)\"")
+        assert r.exit_code == 0 and "64 64" in r.output
+        ok("RLIMIT_NPROC=64 적용 확인", r.output.strip())
+    finally:
+        sb.cleanup()
+        if original is None:
+            del os.environ["SANDBOX_NPROC_LIMIT"]
+        else:
+            os.environ["SANDBOX_NPROC_LIMIT"] = original
+        importlib.reload(process_sandbox)
+
+
 def test_isolation():
     print("\n[7] 동시 3개 세션 격리")
     from process_sandbox import ProcessSandboxBackend
@@ -173,6 +221,9 @@ if __name__ == "__main__":
     test_python_file()
     test_timeout()
     test_disk_quota()
+    test_memory_limit()
+    test_cpu_limit()
+    test_nproc_limit()
     test_isolation()
 
     print("\n" + "=" * 50)

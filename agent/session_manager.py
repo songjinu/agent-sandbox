@@ -17,6 +17,7 @@ from llm_config import build_llm
 
 SESSION_TIMEOUT = 300   # 5분 비활동 시 세션 소멸
 MAX_SESSIONS = 50       # 최대 동시 세션 수
+SKILLS_PATH = os.environ.get("SKILLS_PATH", "/app/skills/")
 
 
 @dataclass
@@ -66,8 +67,7 @@ class Session:
 
     def switch_llm(self, llm_id: str | None):
         """LLM 교체 — sandbox/파일은 유지, graph만 재생성"""
-        from deepagents.graph import create_deep_agent
-        self.graph = create_deep_agent(model=build_llm(llm_id), backend=self.sandbox)
+        self.graph = _create_graph(build_llm(llm_id), self.sandbox)
         self.llm_id = llm_id
 
     def is_expired(self) -> bool:
@@ -81,6 +81,11 @@ class Session:
             request_count=self.request_count,
             workdir=self.sandbox.workdir,
         )
+
+
+def _create_graph(llm, sandbox):
+    from deepagents.graph import create_deep_agent
+    return create_deep_agent(model=llm, backend=sandbox, skills=[SKILLS_PATH])
 
 
 class SessionManager:
@@ -114,7 +119,7 @@ class SessionManager:
 
             sandbox = ProcessSandboxBackend(session_id)
             llm = build_llm(llm_id)
-            graph = create_deep_agent(model=llm, backend=sandbox)
+            graph = _create_graph(llm, sandbox)
 
             session = Session(session_id=session_id, graph=graph, sandbox=sandbox, llm_id=llm_id)
             session.touch()
