@@ -1,43 +1,55 @@
 #!/bin/bash
 # Agent Sandbox 컨테이너 실행
-#
-# [Ollama 로컬 테스트]
-# ./run.sh
-#
-# [vLLM 테스트 서버]
-# LLM_PROVIDER=vllm \
-# LLM_BASE_URL=http://vllm-server:8000/v1 \
-# LLM_MODEL=your-model-name \
-# LLM_API_KEY=your-api-key \
-# ./run.sh
-#
-# [Gemini API]
-# LLM_PROVIDER=vllm \
-# LLM_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/ \
-# LLM_MODEL=gemini-2.0-flash \
-# LLM_API_KEY=your-gemini-key \
-# ./run.sh
+# 단일 프로세스: FastAPI :8000 (안에 Chainlit이 /chat 경로로 mount됨)
+#   - http://localhost:8000/        → API (chat, sessions, health)
+#   - http://localhost:8000/monitor → 실시간 모니터링
+#   - http://localhost:8000/chat    → Chainlit 채팅 UI
 
 set -e
 
 CONTAINER_NAME=agent-sandbox
 IMAGE_NAME=agent-sandbox
-HOST_PORT=${HOST_PORT:-7861}
-API_PORT=${API_PORT:-8000}
+PORT=${PORT:-8000}
 
-# 기존 컨테이너 정리
+# Docker 자원 한도 — 한 세션이 폭주해도 컨테이너 전체가 죽지 않게 cap
+MEMORY=${MEMORY:-3g}
+CPUS=${CPUS:-2}
+
+LLM_BASE_URL=${LLM_BASE_URL:-http://172.19.16.1:11434/v1}
+LLM_MODEL=${LLM_MODEL:-minimax-m2.5:cloud}
+LLM_API_KEY=${LLM_API_KEY:-ollama}
+
+MOUNT_ARGS=""
+if [ -n "$CONFIG" ]; then
+  if [ ! -f "$CONFIG" ]; then
+    echo "CONFIG not found: $CONFIG" >&2
+    exit 1
+  fi
+  MOUNT_ARGS="-v $(realpath "$CONFIG"):/app/llm_config.json:ro"
+fi
+
 docker rm -f $CONTAINER_NAME 2>/dev/null || true
 
 docker run -d \
   --name $CONTAINER_NAME \
-  -p $HOST_PORT:7860 \
-  -p $API_PORT:8000 \
-  -e LLM_PROVIDER=${LLM_PROVIDER:-ollama} \
-  -e LLM_BASE_URL=${LLM_BASE_URL:-http://172.19.16.1:11434} \
-  -e LLM_MODEL=${LLM_MODEL:-glm-5:cloud} \
-  -e LLM_API_KEY=${LLM_API_KEY:-dummy} \
+  --cap-add SYS_ADMIN \
+  --security-opt seccomp=unconfined \
+  --memory="$MEMORY" \
+  --memory-swap="$MEMORY" \
+  --cpus="$CPUS" \
+  -p $PORT:8000 \
+  -e LLM_BASE_URL="$LLM_BASE_URL" \
+  -e LLM_MODEL="$LLM_MODEL" \
+  -e LLM_API_KEY="$LLM_API_KEY" \
+  $MOUNT_ARGS \
   $IMAGE_NAME
 
-echo "Started: http://localhost:$HOST_PORT"
-echo ""
-echo "Logs: docker logs -f $CONTAINER_NAME"
+echo "Started:"
+echo "  채팅:    http://localhost:$PORT/chat"
+echo "  모니터:  http://localhost:$PORT/monitor"
+echo "  API:     http://localhost:$PORT (/health, /sessions, /chat[POST], ...)"
+echo
+echo "자원: --memory=$MEMORY --cpus=$CPUS  (변경: MEMORY=4g CPUS=4 ./run.sh)"
+echo
+echo "Logs:    docker logs -f $CONTAINER_NAME"
+echo "Stop:    docker rm -f $CONTAINER_NAME"

@@ -7,7 +7,8 @@
 """
 
 import sys
-sys.path.insert(0, "/mnt/c/Users/qsky0/Documents/Claude/Projects/songwork/agent")
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "agent"))
 
 from session_manager import SessionManager
 

@@ -8,7 +8,8 @@ import sys
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
 
-sys.path.insert(0, "/mnt/c/Users/qsky0/Documents/Claude/Projects/songwork/agent")
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "agent"))
 
 OLLAMA_HOST = "http://172.19.16.1:11434"
 MODEL = "ollama:llama3.2:1b"

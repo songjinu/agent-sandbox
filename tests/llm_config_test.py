@@ -10,14 +10,14 @@ import os
 import json
 import tempfile
 
-sys.path.insert(0, "/mnt/c/Users/qsky0/Documents/Claude/Projects/songwork/agent")
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "agent"))
 
 # 테스트용 임시 config 파일 사용
 _tmp_cfg = tempfile.NamedTemporaryFile(suffix=".json", delete=False)
 _tmp_cfg.close()
 os.environ["LLM_CONFIG_FILE"] = _tmp_cfg.name
 os.environ["LLM_BASE_URL"] = "http://172.19.16.1:11434/v1"
-os.environ["LLM_MODEL"] = "glm-5:cloud"
+os.environ["LLM_MODEL"] = "llama3.2:1b"
 os.environ["LLM_API_KEY"] = "ollama"
 
 from llm_config import load_config, save_config, build_llm, list_llm_ids, get_llm_entry
@@ -42,7 +42,7 @@ def test_save_load():
         "llms": {
             "ollama-local": {
                 "base_url": "http://172.19.16.1:11434/v1",
-                "model": "glm-5:cloud",
+                "model": "llama3.2:1b",
                 "api_key": "ollama",
             },
             "openrouter": {
@@ -69,11 +69,11 @@ def test_save_load():
 def test_get_entry():
     print("\n[2] get_llm_entry")
     entry = get_llm_entry("ollama-local")
-    assert entry["model"] == "glm-5:cloud"
+    assert entry["model"] == "llama3.2:1b"
     ok(f"ollama-local entry: {entry['model']} @ {entry['base_url']}")
 
     entry2 = get_llm_entry(None)   # default 사용
-    assert entry2["model"] == "glm-5:cloud"
+    assert entry2["model"] == "llama3.2:1b"
     ok("None → default 사용")
 
     try:

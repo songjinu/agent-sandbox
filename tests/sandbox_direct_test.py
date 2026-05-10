@@ -11,7 +11,8 @@ import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-sys.path.insert(0, "/mnt/c/Users/qsky0/Documents/Claude/Projects/songwork/agent")
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "agent"))
 from process_sandbox import ProcessSandboxBackend
 
 

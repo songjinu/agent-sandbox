@@ -1,6 +1,6 @@
 deepagents-cli==0.0.34
 langchain-ollama==1.1.0
 langchain-openai
-gradio==6.12.0
+chainlit
 fastapi
 uvicorn[standard]

@@ -18,7 +18,7 @@ _DEFAULT_CONFIG = {
             "base_url": os.environ.get("LLM_BASE_URL", "http://172.19.16.1:11434/v1"),
             "model":    os.environ.get("LLM_MODEL",    "glm-5:cloud"),
             "api_key":  os.environ.get("LLM_API_KEY",  "ollama"),
-        },
+        }        
     },
 }
 
