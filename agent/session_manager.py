@@ -13,7 +13,7 @@ import time
 import threading
 from dataclasses import dataclass, field
 
-from llm_config import build_llm
+from llm_config import build_llm, load_config
 
 SESSION_TIMEOUT = int(os.environ.get("SESSION_TIMEOUT", "300"))         # 비활동 시 세션 소멸 (초)
 CLEANUP_INTERVAL = int(os.environ.get("CLEANUP_INTERVAL", "60"))        # cleanup 체크 주기 (초)
@@ -111,6 +111,9 @@ class SessionManager:
         self._cleanup_thread.start()
 
     def get_or_create(self, session_id: str, llm_id: str | None = None) -> Session:
+        # llm_id 없으면 config default로 resolve → 실제 사용한 이름이 항상 기록됨
+        if llm_id is None:
+            llm_id = load_config().get("default")
         with self._lock:
             # 기존 세션 재사용
             if session_id in self._sessions:

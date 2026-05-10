@@ -112,6 +112,7 @@ def sessions():
                 last_action = {"action": a.get("action"), "target": a.get("target"), "status": a.get("status")}
         out.append({
             "session_id": info.session_id,
+            "llm_id": s.llm_id if s else None,
             "request_count": info.request_count,
             "idle_seconds": round(info.idle_seconds, 1),
             "age_seconds": round(info.age_seconds, 1),
@@ -135,29 +136,23 @@ def session_activity(session_id: str):
 
 # ── 시연용 데모 테스트셋 ────────────────────────────────────────────────────────
 
-_DEMO_SCRIPT_A = [
-    "alice.txt 파일에 'A-hello' 라고 써줘",
+# 두 세션이 동일한 발화문을 받아 LLM 별 처리 방식을 비교
+_DEMO_SCRIPT = [
+    "hello.txt 파일에 'hi' 라고 써줘",
     "calc.py 파일에 1부터 10까지의 합을 출력하는 코드를 만들고 실행해줘",
     "result.txt 에 calc.py 출력 결과를 저장해줘",
     "현재 디렉토리 파일 목록을 보여줘",
-    "count.txt 파일을 만들어서 1초마다 1부터 100까지 한 줄씩 써줘",
 ]
-
-_DEMO_SCRIPT_B = [
-    "bob.txt 파일에 'B-hi' 라고 써줘",
-    "fib.py 파일에 피보나치 수열 첫 8개를 출력하는 코드를 만들고 실행해줘",
-    "data.json 파일에 {\"x\": 10, \"y\": 20} 를 저장해줘",
-    "data.json 내용을 읽어줘",
-    "현재 디렉토리 파일 목록을 보여줘",
-]
+_DEMO_SCRIPT_A = _DEMO_SCRIPT
+_DEMO_SCRIPT_B = _DEMO_SCRIPT
 
 _demo_lock = threading.Lock()
 _demo_state = {"running": False, "started_at": None, "sessions": []}
 
 
-def _run_one_message(session_id: str, message: str) -> None:
+def _run_one_message(session_id: str, message: str, llm_id: str | None = None) -> None:
     try:
-        session = manager.get_or_create(session_id)
+        session = manager.get_or_create(session_id, llm_id)
         session.begin_request(message)
         try:
             session.graph.invoke(
@@ -171,33 +166,60 @@ def _run_one_message(session_id: str, message: str) -> None:
         print(f"[demo] {session_id} error: {e}")
 
 
-def _run_session_script(session_id: str, messages: list[str]) -> None:
+def _run_session_script(session_id: str, messages: list[str], llm_id: str | None = None) -> None:
     for i, msg in enumerate(messages, 1):
-        _run_one_message(session_id, msg)
+        _run_one_message(session_id, msg, llm_id)
         _time.sleep(0.5)  # 시연 간격
 
 
-def _run_demo() -> None:
+def _pick_demo_llms() -> tuple[str | None, str | None]:
+    """등록된 LLM 중 데모에 쓸 두 개 자동 선택."""
+    from llm_config import list_llm_ids, load_config
+    ids = list_llm_ids()
+    if not ids:
+        return None, None
+    default_id = load_config().get("default")
+    a = default_id if default_id in ids else ids[0]
+    b = next((x for x in ids if x != a), a)  # 두 번째 다른 LLM, 없으면 같은 LLM 재사용
+    return a, b
+
+
+def _run_demo(llm_a: str | None, llm_b: str | None) -> None:
     try:
         with ThreadPoolExecutor(max_workers=2) as ex:
-            ex.submit(_run_session_script, "red", _DEMO_SCRIPT_A)
-            ex.submit(_run_session_script, "blue", _DEMO_SCRIPT_B)
+            ex.submit(_run_session_script, "red", _DEMO_SCRIPT_A, llm_a)
+            ex.submit(_run_session_script, "blue", _DEMO_SCRIPT_B, llm_b)
             ex.shutdown(wait=True)
     finally:
         with _demo_lock:
             _demo_state["running"] = False
 
 
+class DemoStartRequest(BaseModel):
+    llm_a: str | None = None
+    llm_b: str | None = None
+
+
 @app.post("/demo/start")
-def demo_start():
+def demo_start(body: DemoStartRequest | None = None):
+    body = body or DemoStartRequest()
+    auto_a, auto_b = _pick_demo_llms()
+    llm_a = body.llm_a or auto_a
+    llm_b = body.llm_b or auto_b
     with _demo_lock:
         if _demo_state["running"]:
             return {"status": "already_running", "started_at": _demo_state["started_at"]}
         _demo_state["running"] = True
         _demo_state["started_at"] = _time.time()
         _demo_state["sessions"] = ["red", "blue"]
-    threading.Thread(target=_run_demo, daemon=True).start()
-    return {"status": "started", "sessions": ["red", "blue"], "messages_each": len(_DEMO_SCRIPT_A)}
+        _demo_state["llms"] = {"red": llm_a, "blue": llm_b}
+    threading.Thread(target=_run_demo, args=(llm_a, llm_b), daemon=True).start()
+    return {
+        "status": "started",
+        "sessions": ["red", "blue"],
+        "messages_each": len(_DEMO_SCRIPT_A),
+        "llms": {"red": llm_a, "blue": llm_b},
+    }
 
 
 @app.get("/demo/status")
@@ -210,6 +232,14 @@ def demo_status():
 def sandbox_next_id():
     """다음 사용 가능한 색-이름 session_id."""
     return {"session_id": next_color_id(), "palette": COLOR_PALETTE}
+
+
+@app.get("/llm/list")
+def llm_list():
+    """등록된 LLM 목록과 default."""
+    from llm_config import load_config
+    cfg = load_config()
+    return {"llms": list(cfg["llms"].keys()), "default": cfg.get("default")}
 
 
 @app.delete("/sessions/{session_id}")
@@ -304,6 +334,7 @@ _MONITOR_HTML = """<!DOCTYPE html>
  .current .tool-now{margin-top:6px;color:#79c0ff;font-family:ui-monospace,Menlo,Consolas,monospace;}
  .meta{color:#8b949e;font-size:12px;margin-bottom:8px;}
  .pill{display:inline-block;padding:2px 8px;border-radius:10px;background:#21262d;color:#7ee787;font-size:11px;margin-right:6px;}
+ .pill.llm{background:#1f6feb33;color:#79c0ff;border:1px solid #1f6feb;}
  .section{font-size:11px;color:#6e7681;margin:8px 0 4px;text-transform:uppercase;letter-spacing:0.5px;}
  ul.tree{list-style:none;padding-left:8px;margin:0;font-size:12px;max-height:120px;overflow-y:auto;}
  ul.tree li{padding:1px 0;color:#c9d1d9;}
@@ -321,10 +352,11 @@ _MONITOR_HTML = """<!DOCTYPE html>
  .status-blocked,.status-error,.status-timeout{color:#ff7b72;}
  .empty{color:#6e7681;font-style:italic;font-size:12px;}
  .updated{color:#6e7681;font-size:11px;text-align:right;margin-top:14px;}
- .controls{margin-bottom:8px;}
+ .controls{margin-bottom:8px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;}
  .controls button{background:#238636;color:white;border:none;padding:8px 14px;border-radius:6px;cursor:pointer;font-family:inherit;font-size:13px;}
  .controls button:disabled{background:#393f47;cursor:not-allowed;}
  .controls button:hover:not(:disabled){background:#2ea043;}
+ .controls select{background:#0d1117;border:1px solid #30363d;color:#79c0ff;padding:6px 8px;border-radius:5px;font-family:inherit;font-size:12px;}
  .manual{margin-bottom:14px;}
  .manual form{display:flex;gap:6px;}
  .manual input,.manual select{background:#0d1117;border:1px solid #30363d;color:#e6edf3;padding:6px 10px;border-radius:6px;font-family:inherit;font-size:13px;}
@@ -340,7 +372,9 @@ _MONITOR_HTML = """<!DOCTYPE html>
  sandbox 경계 = workdir 경로  ·  tool 호출 흐름 = 활동 로그  ·  세션 정리 = 카드 사라짐  ·  격리 = 세션 카드 분리
 </div>
 <div class="controls">
-  <button id="demo-btn" onclick="startDemo()">🚀 데모 테스트셋 시작 (demo-A · demo-B 동시 진행, 각 10 메시지)</button>
+  🧠 red: <select id="demo-llm-a"></select>
+  🧠 blue: <select id="demo-llm-b"></select>
+  <button id="demo-btn" onclick="startDemo()">🚀 데모 시작 (red · blue 동시, 각 5 메시지)</button>
   <span id="demo-status" class="status"></span>
 </div>
 <div class="manual">
@@ -389,16 +423,38 @@ function colorNameFor(sid){
 
 function assignColors(_activeIds){ /* no-op — sid 자체가 색이라 매핑 불필요 */ }
 
+async function refreshDemoLLMSelects(){
+  // /sandbox/next_id가 palette만 가져옴 — list_llms 별도 endpoint가 없어 /sessions에서 추출 불가
+  // 대신 /sandbox/next_id의 응답을 재활용하지 않고 별도 API 호출
+  try {
+    const r = await fetch('/llm/list').then(r => r.json()).catch(() => null);
+    if (!r) return;
+    for (const id of ['demo-llm-a', 'demo-llm-b']) {
+      const sel = document.getElementById(id);
+      const cur = sel.value;
+      sel.innerHTML = r.llms.map(l => `<option value="${l}">${l}${l === r.default ? ' ⭐' : ''}</option>`).join('');
+      if (cur && r.llms.includes(cur)) sel.value = cur;
+      else if (id === 'demo-llm-b' && r.llms.length >= 2) sel.value = r.llms[1];
+    }
+  } catch(e) { /* ignore */ }
+}
+
 async function startDemo(){
   const btn = document.getElementById('demo-btn');
   const st = document.getElementById('demo-status');
   btn.disabled = true;
   st.textContent = '시작 요청...';
   st.className = 'status';
+  const llm_a = document.getElementById('demo-llm-a').value;
+  const llm_b = document.getElementById('demo-llm-b').value;
   try {
-    const r = await fetch('/demo/start', {method:'POST'}).then(r => r.json());
+    const r = await fetch('/demo/start', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({llm_a, llm_b}),
+    }).then(r => r.json());
     if (r.status === 'started') {
-      st.textContent = `▶ 진행 중 — 세션: ${r.sessions.join(', ')}, 각 ${r.messages_each} 메시지`;
+      st.textContent = `▶ 진행 중 — red(🧠 ${r.llms.red}) · blue(🧠 ${r.llms.blue})`;
     } else if (r.status === 'already_running') {
       st.textContent = '⚠ 이미 진행 중입니다';
     } else {
@@ -544,6 +600,7 @@ async function fetchAll() {
       <div class="sid" title="${s.session_id}">${shortSid}</div>
       <div class="workdir">${s.workdir}</div>
       <div class="meta">
+        ${s.llm_id ? `<span class="pill llm">🧠 ${s.llm_id}</span>` : ''}
         <span class="pill">요청 ${s.request_count}</span>
         <span class="pill">생성 ${s.age_seconds.toFixed(0)}s 전</span>
         <span class="pill">유휴 ${s.idle_seconds.toFixed(0)}s</span>
@@ -562,7 +619,9 @@ async function fetchAll() {
   document.getElementById('updated').textContent = '갱신: ' + new Date().toLocaleTimeString() + '  (3초 자동 갱신)';
 }
 fetchAll();
+refreshDemoLLMSelects();
 setInterval(fetchAll, 3000);
+setInterval(refreshDemoLLMSelects, 10000);
 </script></body></html>"""
 
 
